@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+
+logs/*.log
+!logs/.gitkeep
+
+whisper_models/*/
+!whisper_models/.gitkeep
