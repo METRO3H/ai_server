@@ -18,7 +18,7 @@
 ## 3. Modelos disponibles
 
 - Carpeta local en el mediador (ej. `whisper_models/`) con los modelos ct2 copiados a mano por vos (mismo patrón que `ModelManager.list_models()` ya usa hoy para translate).
-- `GET /models` — lista lo que está físicamente presente. **Sin descarga automática**: si se pide un modelo que no está, se rechaza.
+- `GET /whisper_models` — lista lo que está físicamente presente. **Sin descarga automática**: si se pide un modelo que no está, se rechaza.
 - *(Feature futura, no ahora: endpoint para pedir la descarga de un modelo desde Hugging Face, con feedback de progreso de descarga.)*
 
 ## 4. Ciclo de vida de un job
@@ -55,7 +55,7 @@ La duración (`total_duration`) se sigue calculando en el **cliente** (con el `f
 
 ## 7. Transporte
 
-- **HTTP** (FastAPI): `POST /jobs`, `POST /jobs/{id}/files`, `GET /models`, `GET /status`, `DELETE /model`.
+- **HTTP** (FastAPI): `POST /jobs`, `POST /jobs/{id}/files`, `GET /whisper_models`, `GET /status`, `DELETE /model`.
 - **WebSocket** por job: logs, progreso, resultado por archivo, done.
 - **Sin autenticación** — red de confianza, uso personal.
 

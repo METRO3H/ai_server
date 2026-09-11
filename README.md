@@ -21,14 +21,20 @@ pip install -r requirements.txt
 No hace falta instalar el toolkit de CUDA del sistema — `nvidia-cublas-cu12`
 y `nvidia-cudnn-cu12` (ya en `requirements.txt`) traen las librerías que
 necesita `ctranslate2`/`faster-whisper`. Solo falta que el intérprete las
-encuentre en tiempo de ejecución:
+encuentre en tiempo de ejecución. Como acá el shell es `fish`, conviene
+setearlo como variable **universal** (una sola vez, queda para siempre en
+todas las sesiones futuras, sin tocar ningún archivo de config a mano) en
+vez de un `export` que hay que repetir cada vez que abrís una terminal
+nueva:
 
-```bash
-export LD_LIBRARY_PATH=$(python3 -c "import os, nvidia.cublas.lib, nvidia.cudnn.lib; print(os.path.dirname(nvidia.cublas.lib.__file__) + ':' + os.path.dirname(nvidia.cudnn.lib.__file__))"):$LD_LIBRARY_PATH
+```fish
+# con el venv activado, una sola vez:
+set -Ux LD_LIBRARY_PATH (python3 -c "import os, nvidia.cublas.lib, nvidia.cudnn.lib; print(os.path.dirname(nvidia.cublas.lib.__file__) + ':' + os.path.dirname(nvidia.cudnn.lib.__file__))")
 ```
 
-Conviene meter ese `export` en el `config.fish` (o el `.bashrc` que
-uses) para no tener que tipearlo cada vez que arranques el server.
+Con eso ya no hace falta pensarlo de nuevo — queda seteado para siempre en
+cualquier terminal `fish` de esa cuenta, incluida la próxima vez que
+prendas la máquina.
 
 ## Modelos
 
@@ -46,8 +52,27 @@ whisper_models/
     └── ...
 ```
 
-`GET /models` lista lo que encuentra ahí. Si se pide un modelo que no
+`GET /whisper_models` lista lo que encuentra ahí. Si se pide un modelo que no
 está, el mediador rechaza el job — nunca descarga nada automáticamente.
+
+**¿De dónde salen esos archivos?** Como el mediador tiene poco ancho de
+banda, no conviene descargarlos ahí directamente (`large-v3` son ~3GB).
+Mejor bajarlos en una máquina con buena conexión (ej. tu PC de Windows) y
+pasarlos por LAN. No hace falta instalar `faster-whisper` entero para
+esto, alcanza con:
+
+```bash
+pip install huggingface_hub
+python -c "from huggingface_hub import snapshot_download; snapshot_download('Systran/faster-whisper-large-v3', local_dir='large-v3')"
+```
+
+(cambiá `large-v3` por el tamaño que quieras — los nombres de repo son
+`Systran/faster-whisper-<tamaño>`, ej. `Systran/faster-whisper-medium`).
+Eso deja una carpeta `large-v3/` ya en formato plano (`model.bin`,
+`config.json`, etc., sin la estructura rara de symlinks que usa la caché
+normal de Hugging Face) — copiás esa carpeta tal cual dentro de
+`whisper_models/` en el mediador (`scp`, un recurso compartido de red, un
+pendrive, lo que te resulte más cómodo).
 
 ## Arrancar el server
 
@@ -65,7 +90,7 @@ día, sin borrado automático.
 
 ## API
 
-- `GET /models` — modelos disponibles.
+- `GET /whisper_models` — modelos disponibles.
 - `GET /status` — `{"state": "idle"|"loading"|"busy", "model": ..., "job_id": ...}`, sin autenticación.
 - `POST /jobs` — acepta (`200` + `job_id`) o rechaza (`409` con el motivo) un job nuevo. Todos los campos de config son obligatorios, sin defaults.
 - `POST /jobs/{job_id}/files` — sube un archivo (uno por vez, `multipart/form-data`: `file` + `duration`).
