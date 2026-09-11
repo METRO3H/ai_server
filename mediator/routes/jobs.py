@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 from fastapi import (
     APIRouter,
@@ -96,8 +97,14 @@ async def job_ws(websocket: WebSocket, job_id: str):
     async def receiver() -> None:
         try:
             while True:
-                await websocket.receive_text()
+                text = await websocket.receive_text()
                 job_manager.touch(job_id)
+                try:
+                    data = json.loads(text)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if isinstance(data, dict) and data.get("type") == "cancel":
+                    job_manager.request_cancel(job_id)
         except WebSocketDisconnect:
             pass
 

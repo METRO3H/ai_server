@@ -95,7 +95,7 @@ def test_job_exitoso() -> None:
             {"start": 0.0, "end": 1.2, "text": "hola"},
             {"start": 1.2, "end": 2.5, "text": "mundo"},
         ]
-        assert messages[-1] == {"type": "done", "success": True}
+        assert messages[-1] == {"type": "done", "success": True, "cancelled": False}
         assert client.get("/status").json() == {"state": "idle", "model": None, "job_id": None}
 
     print("OK — job exitoso de punta a punta")
@@ -128,7 +128,7 @@ def test_falla_al_cargar_modelo() -> None:
                     break
 
         assert any(m["type"] == "error" for m in messages)
-        assert messages[-1] == {"type": "done", "success": False}
+        assert messages[-1] == {"type": "done", "success": False, "cancelled": False}
         assert client.get("/status").json() == {"state": "idle", "model": None, "job_id": None}
 
         # El mediador tiene que seguir aceptando jobs con normalidad
@@ -138,8 +138,70 @@ def test_falla_al_cargar_modelo() -> None:
     print("OK — una falla de carga no deja el mediador trabado")
 
 
+class _SlowFakeModel:
+    """Como _FakeModel, pero con una pausa entre segmentos — para poder
+    mandar un cancel a mitad de camino en el test."""
+
+    def transcribe(self, path, **kwargs):
+        import time
+
+        def gen():
+            for i in range(10):
+                time.sleep(0.15)
+                yield _FakeSegment(i, i + 1, f"seg{i}")
+
+        return gen(), _FakeInfo()
+
+
+def test_cancelacion_real() -> None:
+    mm_module.WhisperModel = lambda path, device, compute_type: _SlowFakeModel()
+    _make_fake_model_dir("fake_cancel")
+
+    app = create_app()
+    payload = {**BASE_PAYLOAD, "model_size": "fake_cancel", "files_expected": 2}
+
+    with TestClient(app) as client:
+        job = client.post("/jobs", json=payload).json()
+
+        with client.websocket_connect(job["ws_path"]) as ws:
+            client.post(
+                f"/jobs/{job['job_id']}/files",
+                files={"file": ("a.mp3", io.BytesIO(b"x"), "audio/mpeg")},
+                data={"duration": "10"},
+            )
+            client.post(
+                f"/jobs/{job['job_id']}/files",
+                files={"file": ("b.mp3", io.BytesIO(b"x"), "audio/mpeg")},
+                data={"duration": "10"},
+            )
+
+            # dejamos que arranque a procesar el primer archivo, y recién
+            # ahí cancelamos — para probar que corta a mitad de camino
+            progress_seen = 0
+            while progress_seen < 3:
+                msg = ws.receive_json()
+                if msg["type"] == "progress":
+                    progress_seen += 1
+            ws.send_json({"type": "cancel"})
+
+            messages = []
+            while True:
+                msg = ws.receive_json()
+                messages.append(msg)
+                if msg["type"] == "done":
+                    break
+
+        types_seen = [m["type"] for m in messages]
+        assert "result" not in types_seen, "no debería haber result del archivo cancelado a mitad"
+        assert messages[-1] == {"type": "done", "success": False, "cancelled": True}
+        assert client.get("/status").json() == {"state": "idle", "model": None, "job_id": None}
+
+    print("OK — cancelación real corta a mitad de archivo y no arranca el siguiente")
+
+
 if __name__ == "__main__":
     logging_setup.setup_logging(debug=False)
     test_job_exitoso()
     test_falla_al_cargar_modelo()
+    test_cancelacion_real()
     print("\nTodos los smoke tests pasaron.")

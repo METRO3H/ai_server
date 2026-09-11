@@ -97,8 +97,30 @@ La duración (`total_duration`) se sigue calculando en el **cliente** (con el `f
 - Con el escritorio KDE Plasma (Wayland) completo corriendo, el compositor + shell usan ~307MiB de VRAM en reposo — quedan **~3.7GB libres** igual, sin necesidad del modo bajo consumo para que entren los modelos grandes en `int8`.
 - Driver NVIDIA (`nvidia-smi` 610.57.04) soporta hasta CUDA 13.3 — muy por encima de lo que pide `ctranslate2` (CUDA 12 + cuDNN 9). No hace falta instalar el toolkit de CUDA del sistema: alcanza con `pip install nvidia-cublas-cu12 nvidia-cudnn-cu12` dentro del entorno virtual del mediador + `LD_LIBRARY_PATH` apuntando a esos paquetes (comando exacto cuando armemos el setup del repo).
 
+## 11. Cancelación
+
+- El cliente manda `{"type": "cancel"}` por el WS del job.
+- El mediador marca un flag `cancelled` en el `Job` (mismo patrón cooperativo que `WhisperRunner.cancel()` en local): se chequea entre segmentos y entre archivos, no interrumpe abruptamente en medio de una llamada a `model.transcribe()`.
+- El archivo que estaba a mitad de transcribirse en el momento de la cancelación se descarta (no se manda `result` para ese, se borra su audio igual que cualquier archivo procesado). Los archivos ya completados antes de la cancelación (que ya mandaron su `result`) quedan como están, no se tocan.
+- No se arranca ningún archivo siguiente del lote.
+- El modelo se libera de inmediato (no se espera el timeout de 15 minutos).
+- El `done` final: `{"type": "done", "success": false, "cancelled": true}` — el campo `cancelled` distingue esto de una falla real.
+
+## 12. Forma final de los mensajes WS
+
+Ya implementado, esto reemplaza lo que antes era un pendiente:
+
+- `{"type": "file_received", "file_index": int, "filename": str, "files_received": int, "files_expected": int}` — confirmación de cada subida.
+- `{"type": "log", "message": str}`.
+- `{"type": "file_start", "file_index": int}` — arranca a procesar ese archivo. Existe específicamente para que el cliente pueda mapearlo 1:1 a `on_file_start(i)`, igual que hace `WhisperRunner` en local.
+- `{"type": "progress", "value": float, "file_index": int, "file_progress": float, "completed": int, "total": int}` — `file_progress` es la fracción del archivo actual (0–1); `value` es la fracción del lote completo. `WhisperRunner.on_progress` local solo maneja `file_progress` — el cliente remoto debe usar ese campo, no `value`, para llamar a `on_progress`.
+- `{"type": "result", "file_index": int, "filename": str, "segments": [{"start": float, "end": float, "text": str}, ...]}`.
+- `{"type": "error", "message": str, "file_index": int | null}`.
+- `{"type": "done", "success": bool, "cancelled": bool}`.
+
+Y del cliente hacia el mediador, por el mismo WS: `{"type": "cancel"}`.
+
 ## Pendientes de implementación (no bloquean el diseño)
 
-- Formato exacto del envelope JSON de los mensajes WS (`{"type": "log" | "progress" | "result" | "done", ...}`).
-- Lógica de reconexión de WS del lado cliente (reintentos durante la ventana de 15 min).
+- Lógica de reconexión de WS del lado cliente (reintentos durante la ventana de 15 min) — el módulo cliente actual no la implementa todavía, se conecta una sola vez por job.
 - Manejo de errores de subida (archivo corrupto, desconexión a mitad de un `POST /jobs/{id}/files`).

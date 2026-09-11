@@ -44,6 +44,7 @@ class Job:
     files: list[ReceivedFile] = field(default_factory=list)
     websocket: WebSocket | None = None
     outbound: asyncio.Queue = field(default_factory=asyncio.Queue)
+    cancelled: bool = False
 
     def touch(self) -> None:
         self.last_activity = datetime.now()
@@ -184,6 +185,24 @@ class JobManager:
             self.get_for(job_id).touch()
         except KeyError:
             pass
+
+    def request_cancel(self, job_id: str) -> None:
+        """
+        Marca el job para que se corte entre archivos (o a mitad del
+        archivo que esté procesando en ese momento) — lo chequea
+        transcribe_worker.py, no acá.
+        """
+        try:
+            job = self.get_for(job_id)
+        except KeyError:
+            return
+        job.cancelled = True
+        job.touch()
+        logging_setup.log_event(
+            "transcribe",
+            f"Job #{job.number} — cancelación solicitada por el cliente",
+            level=logging.WARNING,
+        )
 
     async def finish(self, job_id: str) -> None:
         """Job terminado de forma normal (con éxito o con una falla ya

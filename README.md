@@ -94,7 +94,7 @@ día, sin borrado automático.
 - `GET /status` — `{"state": "idle"|"loading"|"busy", "model": ..., "job_id": ...}`, sin autenticación.
 - `POST /jobs` — acepta (`200` + `job_id`) o rechaza (`409` con el motivo) un job nuevo. Todos los campos de config son obligatorios, sin defaults.
 - `POST /jobs/{job_id}/files` — sube un archivo (uno por vez, `multipart/form-data`: `file` + `duration`).
-- `WS /jobs/{job_id}/ws` — logs, progreso y resultados en vivo, mismo contrato que los eventos `audiotools:*` del cliente local.
+- `WS /jobs/{job_id}/ws` — logs, progreso y resultados en vivo, mismo contrato que los eventos `audiotools:*` del cliente local. El cliente puede mandar `{"type": "cancel"}` por este mismo WS para cortar el job (corta entre segmentos/archivos, no espera a terminar el lote completo; el archivo a mitad de proceso se descarta sin mandar `result`, los ya completados quedan como están). El `done` final incluye `"cancelled": true/false` para distinguir un corte pedido por el usuario de una falla real.
 - `DELETE /model` — libera el modelo a la fuerza, sin importar el estado del job.
 
 ## Notas de implementación / simplificaciones conocidas

@@ -43,12 +43,18 @@ def _run_one_file_sync(
     loop: asyncio.AbstractEventLoop,
     queue: asyncio.Queue,
     touch,
+    is_cancelled,
 ) -> list[dict]:
     """
     Corre DENTRO del thread del executor (bloqueante). Devuelve los
     segments de este archivo ya serializados (solo start/end/text, que
     es lo único que hoy usan build_srt/build_vtt/build_txt del lado
     cliente).
+
+    Si ``is_cancelled()`` se vuelve True a mitad de camino, corta el
+    loop de segmentos ahí mismo — el archivo queda incompleto y quien
+    llama (``process_job``) decide qué hacer con eso (no se manda
+    ``result`` para un archivo cancelado a mitad de camino).
     """
     language = constants.LANGUAGES.get(job_config["language"])
     initial_prompt = job_config["initial_prompt"] or None
@@ -73,6 +79,8 @@ def _run_one_file_sync(
 
     collected: list[dict] = []
     for segment in segments_gen:
+        if is_cancelled():
+            break
         collected.append({
             "start": segment.start,
             "end": segment.end,
@@ -91,15 +99,16 @@ def _run_one_file_sync(
             "total": total_files,
         })
 
-    final_value = (completed_before + 1) / total_files if total_files else 1.0
-    _push(loop, queue, {
-        "type": "progress",
-        "value": final_value,
-        "file_index": file_index,
-        "file_progress": 1.0,
-        "completed": completed_before + 1,
-        "total": total_files,
-    })
+    if not is_cancelled():
+        final_value = (completed_before + 1) / total_files if total_files else 1.0
+        _push(loop, queue, {
+            "type": "progress",
+            "value": final_value,
+            "file_index": file_index,
+            "file_progress": 1.0,
+            "completed": completed_before + 1,
+            "total": total_files,
+        })
     return collected
 
 
@@ -137,7 +146,7 @@ async def process_job(job, job_manager, model_manager) -> None:
             "message": f"No se pudo cargar el modelo '{cfg['model_size']}': {exc}",
             "file_index": None,
         })
-        await queue.put({"type": "done", "success": False})
+        await queue.put({"type": "done", "success": False, "cancelled": False})
         job.state = "failed"
         await job_manager.finish(job.job_id)
         return
@@ -151,14 +160,20 @@ async def process_job(job, job_manager, model_manager) -> None:
 
     # ── procesamiento en loop, archivo por archivo ──────────────────
     success = True
+    cancelled = False
     for rf in job.files:
+        if job.cancelled:
+            cancelled = True
+            break
+
+        await queue.put({"type": "file_start", "file_index": rf.index})
         file_start = time.monotonic()
         try:
             segments = await loop.run_in_executor(
                 None,
                 _run_one_file_sync,
                 model, rf.index, rf.filename, rf.path, rf.duration, cfg,
-                rf.index, total_files, loop, queue, touch,
+                rf.index, total_files, loop, queue, touch, lambda: job.cancelled,
             )
         except Exception as exc:
             file_elapsed = time.monotonic() - file_start
@@ -171,21 +186,35 @@ async def process_job(job, job_manager, model_manager) -> None:
             await queue.put({"type": "error", "message": str(exc), "file_index": rf.index})
             success = False
         else:
-            file_elapsed = time.monotonic() - file_start
-            logging_setup.log_event(
-                "transcribe",
-                f"Job #{job.number} — archivo transcripto: {rf.filename} ({file_elapsed:.1f}s)",
-            )
-            await queue.put({
-                "type": "result",
-                "file_index": rf.index,
-                "filename": rf.filename,
-                "segments": segments,
-            })
+            if job.cancelled:
+                # Se cortó a mitad de este archivo — no se manda result,
+                # queda incompleto (su audio se borra igual, en el finally).
+                cancelled = True
+                logging_setup.log_event(
+                    "transcribe",
+                    f"Job #{job.number} — '{rf.filename}' cancelado a mitad de proceso",
+                    level=logging.WARNING,
+                )
+            else:
+                file_elapsed = time.monotonic() - file_start
+                logging_setup.log_event(
+                    "transcribe",
+                    f"Job #{job.number} — archivo transcripto: {rf.filename} ({file_elapsed:.1f}s)",
+                )
+                await queue.put({
+                    "type": "result",
+                    "file_index": rf.index,
+                    "filename": rf.filename,
+                    "segments": segments,
+                })
         finally:
             rf.path.unlink(missing_ok=True)
             touch()
 
-    await queue.put({"type": "done", "success": success})
-    job.state = "done" if success else "failed"
+        if job.cancelled:
+            cancelled = True
+            break
+
+    await queue.put({"type": "done", "success": success and not cancelled, "cancelled": cancelled})
+    job.state = "done" if (success and not cancelled) else "failed"
     await job_manager.finish(job.job_id)
