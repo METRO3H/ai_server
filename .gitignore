@@ -7,3 +7,5 @@ logs/*.log
 
 whisper_models/*/
 !whisper_models/.gitkeep
+
+exports/
