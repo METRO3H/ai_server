@@ -29,8 +29,24 @@ nueva:
 
 ```fish
 # con el venv activado, una sola vez:
-set -Ux LD_LIBRARY_PATH (python3 -c "import os, nvidia.cublas.lib, nvidia.cudnn.lib; print(os.path.dirname(nvidia.cublas.lib.__file__) + ':' + os.path.dirname(nvidia.cudnn.lib.__file__))")
+set -Ux LD_LIBRARY_PATH (python3 -c "import nvidia.cublas, nvidia.cudnn, os; print(os.path.join(nvidia.cublas.__path__[0], 'lib') + ':' + os.path.join(nvidia.cudnn.__path__[0], 'lib'))")
 ```
+
+(Ojo: `nvidia.cublas.lib` en sí **no** es un módulo de Python — es una
+carpeta sin `__init__.py` (paquete de namespace implícito), así que no
+tiene `__file__`. Hay que navegar desde `nvidia.cublas.__path__[0]`, que
+sí apunta a la carpeta real del paquete, y agregarle `/lib` a mano.)
+
+Verificá que la ruta exista de verdad antes de seguir:
+
+```fish
+echo $LD_LIBRARY_PATH
+ls (echo $LD_LIBRARY_PATH | string split ':')[1]
+```
+
+Esto último debería listar `libcublas.so.12` (o similar) — si tira error
+de "No such file or directory", algo no cerró y conviene revisar antes de
+arrancar el server.
 
 Con eso ya no hace falta pensarlo de nuevo — queda seteado para siempre en
 cualquier terminal `fish` de esa cuenta, incluida la próxima vez que
