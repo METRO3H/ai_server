@@ -1,8 +1,26 @@
 #!/usr/bin/env fish
-# Activa el venv y corre el mediador en un solo paso, para no tener que
-# acordarse de los dos comandos por separado.
-#
-#   ./run.fish --debug
-#
-source (dirname (status --current-filename))/.venv/bin/activate.fish
-python -m mediator.main $argv
+
+set -l python ".venv/bin/python"
+
+set -l cuda_libs (
+    $python -c "
+import os
+import nvidia.cublas
+import nvidia.cudnn
+
+print(
+    os.path.join(nvidia.cublas.__path__[0], 'lib')
+    + ':'
+    + os.path.join(nvidia.cudnn.__path__[0], 'lib')
+)
+"
+)
+
+if test $status -ne 0
+    echo "Error: no se pudieron localizar las librerías CUDA."
+    exit 1
+end
+
+set -gx LD_LIBRARY_PATH "$cuda_libs" $LD_LIBRARY_PATH
+
+exec $python -m mediator.main $argv
