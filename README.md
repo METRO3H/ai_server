@@ -126,3 +126,9 @@ día, sin borrado automático.
 - El descubrimiento UDP siempre está escuchando mientras el proceso corre
   (no hace falta systemd para eso), pero el proceso en sí solo existe
   mientras lo tengas arrancado a mano.
+
+- `ctranslate2` está fijado a `4.7.2` en `requirements.txt` a propósito —
+  `4.8.2` reproduce un OOM confirmado con `large-v3` + `beam_size=10` en
+  tarjetas de 4GB (funciona sin problema en 4.7.2, incluso con varios
+  archivos en cola). Si en algún momento se necesita actualizar
+  `ctranslate2`, volver a probar ese caso límite antes de mergear.

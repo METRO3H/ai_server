@@ -11,7 +11,14 @@ thread-safe (``call_soon_threadsafe``) hacia la cola asyncio del job.
 No hay chequeo previo de VRAM (decisión consciente): si la combinación
 pedida no entra en memoria, la carga o la inferencia van a tirar una
 excepción, que acá se captura y se reporta por WS + log, liberando el
-job en vez de dejarlo colgado.
+job en vez de dejarlo colgado. El mensaje que se manda al cliente por
+WS incluye el traceback completo (no solo ``str(exc)``) — es uso
+personal, no hay motivo para recortarlo.
+
+Mientras el job corre, ``progress_ui.ProgressUI`` dibuja en la terminal
+del server un spinner (durante la carga del modelo) y dos barras
+(progreso general del batch + progreso del archivo actual) — ver ese
+módulo para el detalle.
 """
 from __future__ import annotations
 
@@ -22,7 +29,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from . import constants, logging_setup
+from . import constants, logging_setup, progress_ui
 
 logger = logging_setup.get_logger()
 
@@ -44,6 +51,7 @@ def _run_one_file_sync(
     queue: asyncio.Queue,
     touch,
     is_cancelled,
+    progress: progress_ui.ProgressUI,
 ) -> list[dict]:
     """
     Corre DENTRO del thread del executor (bloqueante). Devuelve los
@@ -90,6 +98,7 @@ def _run_one_file_sync(
 
         file_progress = min(segment.end / duration, 1.0) if duration > 0 else 0.0
         value = (completed_before + file_progress) / total_files if total_files else 0.0
+        progress.update(file_progress=file_progress, completed_before=completed_before)
         _push(loop, queue, {
             "type": "progress",
             "value": value,
@@ -101,6 +110,7 @@ def _run_one_file_sync(
 
     if not is_cancelled():
         final_value = (completed_before + 1) / total_files if total_files else 1.0
+        progress.update(file_progress=1.0, completed_before=completed_before)
         _push(loop, queue, {
             "type": "progress",
             "value": final_value,
@@ -117,104 +127,122 @@ async def process_job(job, job_manager, model_manager) -> None:
     queue = job.outbound
     total_files = len(job.files)
     cfg = job.config
+    progress = progress_ui.ProgressUI()
+    progress.start()
 
     def touch() -> None:
         job_manager.touch(job.job_id)
 
-    # ── carga del modelo ────────────────────────────────────────────
-    job.state = "loading_model"
-    logging_setup.log_event(
-        "transcribe", f"Job #{job.number} — cargando modelo {cfg['model_size']}...",
-    )
-    await queue.put({"type": "log", "message": f"Cargando modelo {cfg['model_size']}..."})
-
-    load_start = time.monotonic()
     try:
-        model = await loop.run_in_executor(
-            None, model_manager.load, cfg["model_size"], cfg["device"], cfg["compute_type"],
-        )
-    except Exception as exc:
-        elapsed = time.monotonic() - load_start
+        # ── carga del modelo ────────────────────────────────────────
+        job.state = "loading_model"
         logging_setup.log_event(
-            "transcribe",
-            f"Job #{job.number} — falló la carga del modelo tras {elapsed:.1f}s: {exc}\n"
-            f"{traceback.format_exc()}",
-            level=logging.ERROR,
+            "transcribe", f"Job #{job.number} — cargando modelo {cfg['model_size']}...",
         )
-        await queue.put({
-            "type": "error",
-            "message": f"No se pudo cargar el modelo '{cfg['model_size']}': {exc}",
-            "file_index": None,
-        })
-        await queue.put({"type": "done", "success": False, "cancelled": False})
-        job.state = "failed"
-        await job_manager.finish(job.job_id)
-        return
+        await queue.put({"type": "log", "message": f"Cargando modelo {cfg['model_size']}..."})
+        progress.set_loading(cfg["model_size"])
 
-    load_elapsed = time.monotonic() - load_start
-    logging_setup.log_event(
-        "transcribe", f"Job #{job.number} — modelo cargado ({load_elapsed:.1f}s)",
-    )
-    job.state = "processing"
-    touch()
-
-    # ── procesamiento en loop, archivo por archivo ──────────────────
-    success = True
-    cancelled = False
-    for rf in job.files:
-        if job.cancelled:
-            cancelled = True
-            break
-
-        await queue.put({"type": "file_start", "file_index": rf.index})
-        file_start = time.monotonic()
+        load_start = time.monotonic()
         try:
-            segments = await loop.run_in_executor(
-                None,
-                _run_one_file_sync,
-                model, rf.index, rf.filename, rf.path, rf.duration, cfg,
-                rf.index, total_files, loop, queue, touch, lambda: job.cancelled,
+            model = await loop.run_in_executor(
+                None, model_manager.load, cfg["model_size"], cfg["device"], cfg["compute_type"],
             )
         except Exception as exc:
-            file_elapsed = time.monotonic() - file_start
+            progress.model_loaded()
+            elapsed = time.monotonic() - load_start
             logging_setup.log_event(
                 "transcribe",
-                f"Job #{job.number} — falló '{rf.filename}' tras {file_elapsed:.1f}s: {exc}\n"
+                f"Job #{job.number} — falló la carga del modelo tras {elapsed:.1f}s: {exc}\n"
                 f"{traceback.format_exc()}",
                 level=logging.ERROR,
             )
-            await queue.put({"type": "error", "message": str(exc), "file_index": rf.index})
-            success = False
-        else:
+            await queue.put({
+                "type": "error",
+                "message": (
+                    f"No se pudo cargar el modelo '{cfg['model_size']}':\n"
+                    f"{traceback.format_exc()}"
+                ),
+                "file_index": None,
+            })
+            await queue.put({"type": "done", "success": False, "cancelled": False})
+            job.state = "failed"
+            await job_manager.finish(job.job_id)
+            return
+
+        progress.model_loaded()
+        load_elapsed = time.monotonic() - load_start
+        logging_setup.log_event(
+            "transcribe", f"Job #{job.number} — modelo cargado ({load_elapsed:.1f}s)",
+        )
+        job.state = "processing"
+        touch()
+        progress.start_job(job.number, total_files)
+
+        # ── procesamiento en loop, archivo por archivo ──────────────
+        success = True
+        cancelled = False
+        for rf in job.files:
             if job.cancelled:
-                # Se cortó a mitad de este archivo — no se manda result,
-                # queda incompleto (su audio se borra igual, en el finally).
                 cancelled = True
-                logging_setup.log_event(
-                    "transcribe",
-                    f"Job #{job.number} — '{rf.filename}' cancelado a mitad de proceso",
-                    level=logging.WARNING,
+                break
+
+            await queue.put({"type": "file_start", "file_index": rf.index})
+            progress.set_file(rf.index, total_files, rf.filename)
+            file_start = time.monotonic()
+            try:
+                segments = await loop.run_in_executor(
+                    None,
+                    _run_one_file_sync,
+                    model, rf.index, rf.filename, rf.path, rf.duration, cfg,
+                    rf.index, total_files, loop, queue, touch, lambda: job.cancelled,
+                    progress,
                 )
-            else:
+            except Exception as exc:
                 file_elapsed = time.monotonic() - file_start
                 logging_setup.log_event(
                     "transcribe",
-                    f"Job #{job.number} — archivo transcripto: {rf.filename} ({file_elapsed:.1f}s)",
+                    f"Job #{job.number} — falló '{rf.filename}' tras {file_elapsed:.1f}s: {exc}\n"
+                    f"{traceback.format_exc()}",
+                    level=logging.ERROR,
                 )
                 await queue.put({
-                    "type": "result",
+                    "type": "error",
+                    "message": traceback.format_exc(),
                     "file_index": rf.index,
-                    "filename": rf.filename,
-                    "segments": segments,
                 })
-        finally:
-            rf.path.unlink(missing_ok=True)
-            touch()
+                success = False
+            else:
+                if job.cancelled:
+                    # Se cortó a mitad de este archivo — no se manda result,
+                    # queda incompleto (su audio se borra igual, en el finally).
+                    cancelled = True
+                    logging_setup.log_event(
+                        "transcribe",
+                        f"Job #{job.number} — '{rf.filename}' cancelado a mitad de proceso",
+                        level=logging.WARNING,
+                    )
+                else:
+                    file_elapsed = time.monotonic() - file_start
+                    logging_setup.log_event(
+                        "transcribe",
+                        f"Job #{job.number} — archivo transcripto: {rf.filename} ({file_elapsed:.1f}s)",
+                    )
+                    await queue.put({
+                        "type": "result",
+                        "file_index": rf.index,
+                        "filename": rf.filename,
+                        "segments": segments,
+                    })
+            finally:
+                rf.path.unlink(missing_ok=True)
+                touch()
 
-        if job.cancelled:
-            cancelled = True
-            break
+            if job.cancelled:
+                cancelled = True
+                break
 
-    await queue.put({"type": "done", "success": success and not cancelled, "cancelled": cancelled})
-    job.state = "done" if (success and not cancelled) else "failed"
-    await job_manager.finish(job.job_id)
+        await queue.put({"type": "done", "success": success and not cancelled, "cancelled": cancelled})
+        job.state = "done" if (success and not cancelled) else "failed"
+        await job_manager.finish(job.job_id)
+    finally:
+        progress.stop()

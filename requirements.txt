@@ -3,6 +3,18 @@ uvicorn[standard]>=0.30
 python-multipart>=0.0.9
 faster-whisper>=1.0
 
+# ctranslate2 fijado a mano (no dejar que faster-whisper resuelva la
+# última disponible): 4.8.x introduce un pico de VRAM notablemente más
+# alto que 4.7.2 con beam_size grande (10) en large-v3 — confirmado
+# empíricamente en una GTX 1650 4GB (OOM en 4.8.2, sin problemas en
+# 4.7.2, incluso con archivos en cola). No actualizar sin volver a
+# probar el caso límite de VRAM primero.
+ctranslate2==4.7.2
+
+# Barra de progreso + spinner en la terminal del server durante la
+# carga del modelo y la transcripción (ver progress_ui.py).
+rich
+
 # Librerías de NVIDIA vía pip — evitan tener que instalar el toolkit de
 # CUDA completo a nivel de sistema. Ver README para el LD_LIBRARY_PATH
 # que hace falta setear.
