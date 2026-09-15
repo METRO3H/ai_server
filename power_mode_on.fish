@@ -79,10 +79,15 @@ nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
 sleep 1
 set -l ram_after (free -m | awk '/^Mem:/ {print $3}')
 set -l vram_after (nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits)
-set -l ram_freed (math $ram_before - $ram_after)
-set -l vram_freed (math $vram_before - $vram_after)
+
+set -l ram_delta (math $ram_after - $ram_before)
+set -l ram_pct (math -s1 "($ram_after - $ram_before) / $ram_before * 100")
+set -l vram_delta (math $vram_after - $vram_before)
+set -l vram_pct (math -s1 "($vram_after - $vram_before) / $vram_before * 100")
 
 echo ""
 echo "== Memoria liberada =="
-echo "  RAM:  $ram_before MiB -> $ram_after MiB   (liberados: $ram_freed MiB)"
-echo "  VRAM: $vram_before MiB -> $vram_after MiB   (liberados: $vram_freed MiB)"
+set_color red
+echo "  RAM:  $ram_before MiB -> $ram_after MiB   ($ram_delta MiB, $ram_pct%)"
+echo "  VRAM: $vram_before MiB -> $vram_after MiB   ($vram_delta MiB, $vram_pct%)"
+set_color normal
