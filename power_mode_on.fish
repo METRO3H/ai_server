@@ -1,93 +1,159 @@
 #!/usr/bin/env fish
-# v2 — la primera versión asumía que la lista de apps abiertas en el
-# momento del diagnóstico (VS Code, KWrite, LocalSend) era exhaustiva.
-# No lo es: cualquier app puede estar abierta cuando se corre esto
-# (Dolphin, un navegador, lo que sea). Esta versión mata TODO lo que
-# esté envuelto como "app-*.service" —así es como Plasma 6 envuelve
-# CUALQUIER app lanzada desde el launcher/taskbar/Dolphin/etc.— salvo
-# konsole, sin importar qué app sea ni si estaba corriendo cuando se
-# escribió este script.
-#
-# Además, en vez de "systemctl stop" (negocia un cierre prolijo y
-# puede tardar — por eso VS Code se demoraba en cerrar), se usa
-# "systemctl kill --signal=SIGKILL": mata los procesos del momento,
-# sin esperar nada.
-#
-# NO TOCA (rompería la sesión o konsole):
-#   kwin_wayland, dbus-broker, dconf, systemd-logind, NetworkManager,
-#   power-profiles-daemon.
-#
-# NO toca CPU governor ni power-profile (a pedido explícito: no bajar
-# performance bajo ninguna circunstancia).
-#
-# Uso: ./power_mode_on.fish
 
-# ── snapshot ANTES, para poder mostrar cuánto se liberó al final ────
-set -l ram_before (free -m | awk '/^Mem:/ {print $3}')
-set -l vram_before (nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits)
+set -l verbose 0
 
-echo "== Matando TODAS las apps de usuario abiertas (excepto konsole) =="
-for unit in (systemctl --user list-units --type=service --state=running --no-legend --plain | string match -r '^app-\S*\.service')
-    if string match -qr '^app-org\.kde\.konsole@' -- $unit
-        echo "  (dejando viva: $unit)"
-        continue
-    end
-    echo "  SIGKILL a $unit"
-    systemctl --user kill --signal=SIGKILL $unit
+if contains -- -v $argv
+    set verbose 1
 end
 
-echo "== Red de seguridad: por si alguna app no quedó envuelta en un app-*.service =="
-echo "   (ej. abierta directo desde una terminal, sin pasar por el launcher de Plasma)"
-pkill -9 -x dolphin 2>/dev/null
-pkill -9 -x firefox 2>/dev/null
-pkill -9 -x chromium 2>/dev/null
-pkill -9 -f '/usr/share/code/code' 2>/dev/null
-pkill -9 -x kwrite 2>/dev/null
-pkill -9 -x localsend 2>/dev/null
 
-echo "== Parando servicios de fondo de Plasma/KDE que no son 'app-*' =="
-echo "   (mask, no solo kill: baloorunner/krunner/portal-gtk son"
-echo "   dbus-activatable — si solo se matan, cualquier llamada a su"
-echo "   interfaz de D-Bus los vuelve a levantar solos, sin pasar por"
-echo "   el mecanismo de Restart= de systemd. mask bloquea eso.)"
-set -l kde_background \
+# ============================================================
+# Memoria inicial
+# ============================================================
+
+set -l ram_before (free -m | awk '/^Mem:/ {print $3}')
+set -l ram_total (free -m | awk '/^Mem:/ {print $2}')
+
+set -l vram_before (
+    nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null
+)
+
+set -l vram_total (
+    nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null
+)
+
+
+# ============================================================
+# Detener servicios y aplicaciones
+# ============================================================
+
+if test $verbose -eq 1
+    echo "Deteniendo servicios y aplicaciones..."
+end
+
+
+# Detener aplicaciones app-*.service, excepto Konsole
+for svc in (systemctl --user list-units --type=service --state=running --no-legend 'app-*.service' 2>/dev/null | awk '{print $1}')
+    if string match -q 'app-org.kde.konsole@*.service' $svc
+        continue
+    end
+
+    if test $verbose -eq 1
+        echo "  Deteniendo $svc"
+    end
+
+    systemctl --user stop $svc >/dev/null 2>&1
+end
+
+
+# Procesos pesados conocidos
+if test $verbose -eq 1
+    echo "Finalizando procesos pesados..."
+end
+
+for proc in dolphin firefox chromium code kwrite localsend
+    pkill -9 $proc 2>/dev/null
+end
+
+
+# ============================================================
+# Servicios de fondo
+# ============================================================
+
+set -l services \
     kde-baloo.service \
     plasma-baloorunner.service \
     plasma-krunner.service \
     xdg-desktop-portal-gtk.service
 
-for svc in $kde_background
-    echo "  mask + SIGKILL a $svc"
-    systemctl --user mask $svc
-    systemctl --user kill --signal=SIGKILL $svc
+for svc in $services
+
+    if test $verbose -eq 1
+        echo "  Configurando $svc"
+    end
+
+    systemctl --user stop $svc >/dev/null 2>&1
+    systemctl --user mask $svc >/dev/null 2>&1
 end
 
-echo "== Parando plasmashell (panel/escritorio) =="
-echo "   konsole no depende de esto — es un cliente de kwin_wayland aparte"
-echo "   (stop, no kill: plasmashell tiene Restart=on-failure — kill lo"
-echo "   mata sin avisarle a systemd que fue intencional, y systemd lo"
-echo "   resucita solo. stop sí cuenta como parada intencional.)"
-systemctl --user stop plasma-plasmashell.service
 
-echo ""
-echo "Listo. Esto quedó corriendo en la GPU:"
-nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
+# ============================================================
+# Plasma Shell
+# ============================================================
 
-# ── snapshot DESPUÉS + diferencia ────────────────────────────────────
-# sleep corto: darle un instante al kernel/driver para que termine de
-# reclamar la memoria de los procesos recién matados antes de medir.
+if test $verbose -eq 1
+    echo "Deteniendo Plasma Shell..."
+end
+
+systemctl --user stop plasma-plasmashell.service >/dev/null 2>&1
+
+
+# ============================================================
+# Esperar a que la memoria se libere
+# ============================================================
+
 sleep 1
-set -l ram_after (free -m | awk '/^Mem:/ {print $3}')
-set -l vram_after (nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits)
 
-set -l ram_delta (math $ram_after - $ram_before)
-set -l ram_pct (math -s1 "($ram_after - $ram_before) / $ram_before * 100")
-set -l vram_delta (math $vram_after - $vram_before)
-set -l vram_pct (math -s1 "($vram_after - $vram_before) / $vram_before * 100")
+
+# ============================================================
+# Memoria final
+# ============================================================
+
+set -l ram_after (free -m | awk '/^Mem:/ {print $3}')
+
+set -l vram_after (
+    nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null
+)
+
+# ============================================================
+# Cálculos
+# ============================================================
+
+set -l ram_freed (math "$ram_before - $ram_after")
+set -l vram_freed (math "$vram_before - $vram_after")
+
+set -l ram_pct (math -s1 "100 * $ram_freed / $ram_before")
+set -l vram_pct (math -s1 "100 * $vram_freed / $vram_before")
+
+set -l ram_available_pct (math -s1 "100 * $ram_freed / $ram_total")
+set -l vram_available_pct (math -s1 "100 * $vram_freed / $vram_total")
+
+
+# ============================================================
+# Mostrar memoria liberada
+# ============================================================
 
 echo ""
+
+set_color brblue
 echo "== Memoria liberada =="
-set_color red
-echo "  RAM:  $ram_before MiB -> $ram_after MiB   ($ram_delta MiB, $ram_pct%)"
-echo "  VRAM: $vram_before MiB -> $vram_after MiB   ($vram_delta MiB, $vram_pct%)"
+
 set_color normal
+echo -n "RAM:  $ram_before MiB -> $ram_after MiB  "
+
+set_color red
+echo -n "-$ram_freed MiB, -$ram_pct%"
+
+set_color normal
+echo -n "  "
+
+set_color green
+echo "+$ram_freed MiB disponibles, +$ram_available_pct%"
+
+set_color normal
+
+echo -n "VRAM: $vram_before MiB -> $vram_after MiB  "
+
+set_color red
+echo -n "-$vram_freed MiB, -$vram_pct%"
+
+set_color normal
+echo -n "  "
+
+set_color green
+echo "+$vram_freed MiB disponibles, +$vram_available_pct%"
+
+set_color normal
+
+echo ""
+echo ""
