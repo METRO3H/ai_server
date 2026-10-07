@@ -1,3 +1,4 @@
+
 # Server mediador de transcripción — Diseño consolidado
 
 ## 1. Arquitectura general
@@ -124,3 +125,4 @@ Y del cliente hacia el mediador, por el mismo WS: `{"type": "cancel"}`.
 
 - Lógica de reconexión de WS del lado cliente (reintentos durante la ventana de 15 min) — el módulo cliente actual no la implementa todavía, se conecta una sola vez por job.
 - Manejo de errores de subida (archivo corrupto, desconexión a mitad de un `POST /jobs/{id}/files`).
+

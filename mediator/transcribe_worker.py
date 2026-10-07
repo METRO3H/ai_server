@@ -1,3 +1,4 @@
+
 """
 Ejecuta la transcripción de un job: carga el modelo, procesa los
 archivos en loop (uno por uno), manda progreso/resultados por el WS del
@@ -246,3 +247,4 @@ async def process_job(job, job_manager, model_manager) -> None:
         await job_manager.finish(job.job_id)
     finally:
         progress.stop()
+

@@ -1,9 +1,10 @@
+
 """
 Logging del mediador.
 
 - Formato de línea: ``[HH:MM:SS,mmm][tool] mensaje``.
-- Un archivo por día en ``logs/transcribe_YYYY-MM-DD.log``, sin límite
-  de retención (se acumulan, se gestionan a mano).
+- Un archivo por día en ``logs/ai_server_log_YYYY-MM-DD.log``, sin
+  límite de retención (se acumulan, se gestionan a mano).
 - Nivel ``DEBUG`` apagado por defecto — se prende con ``--debug`` al
   arrancar el server (ver ``main.py``). Ahí van cosas ruidosas como los
   pings de discovery UDP.
@@ -42,7 +43,7 @@ class _DailyFileHandler(logging.Handler):
     sin borrado/retención.
     """
 
-    def __init__(self, log_dir: Path, prefix: str = "transcribe"):
+    def __init__(self, log_dir: Path, prefix: str = "ai_server_log"):
         super().__init__()
         self._log_dir = log_dir
         self._prefix = prefix
@@ -162,3 +163,4 @@ def get_logger() -> logging.Logger:
 
 def log_event(tool: str, message: str, level: int = logging.INFO) -> None:
     get_logger().log(level, message, extra={"tool": tool})
+

@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import asyncio
@@ -37,7 +38,9 @@ async def create_job(payload: JobRequest, request: Request):
         )
 
     try:
-        job = await job_manager.create_job(payload.model_dump(), payload.files_expected)
+        job = await job_manager.create_job(
+            "transcribe", payload.model_dump(), payload.files_expected,
+        )
     except BusyError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
@@ -117,3 +120,4 @@ async def job_ws(websocket: WebSocket, job_id: str):
         task.cancel()
 
     job_manager.detach_ws(job_id)
+

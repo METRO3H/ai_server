@@ -1,3 +1,4 @@
+
 """
 Punto de entrada. Arranque manual por ahora (sin systemd ni nada de
 fondo):
@@ -33,3 +34,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

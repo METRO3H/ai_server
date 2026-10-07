@@ -1,3 +1,4 @@
+
 """
 Gestión del modelo whisper: carga perezosa, reuso mientras no cambie la
 config, y descarga explícita — mismo patrón que ``WhisperRunner`` en
@@ -59,3 +60,4 @@ class ModelManager:
             self._model = None
             self._key = None
             gc.collect()
+

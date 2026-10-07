@@ -1,3 +1,4 @@
+
 """
 Tablas de valores válidos para la config de transcripción.
 
@@ -25,3 +26,4 @@ LANGUAGES: dict[str, str | None] = {
     "es": "es",
     "en": "en",
 }
+

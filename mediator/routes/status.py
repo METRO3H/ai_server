@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
@@ -11,3 +12,4 @@ router = APIRouter()
 async def get_status(request: Request):
     job_manager = request.app.state.job_manager
     return StatusResponse(**job_manager.status())
+

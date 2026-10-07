@@ -1,3 +1,4 @@
+
 echo "=== Sesión / compositor ==="
 echo $XDG_SESSION_TYPE
 plasmashell --version
@@ -27,3 +28,4 @@ cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors
 echo "=== Gestor de energía instalado ==="
 which powerprofilesctl tlp auto-cpufreq 2>/dev/null
 powerprofilesctl list 2>/dev/null
+

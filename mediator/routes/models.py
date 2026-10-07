@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from fastapi import APIRouter
@@ -11,3 +12,4 @@ router = APIRouter()
 @router.get("/whisper_models", response_model=ModelsResponse)
 async def get_models():
     return ModelsResponse(models=models_registry.list_available_models())
+

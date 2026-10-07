@@ -1,3 +1,4 @@
+
 """
 Modelos de whisper disponibles en este mediador.
 
@@ -34,3 +35,4 @@ def resolve_model_path(model_size: str) -> Path:
             f"(se esperaba encontrarlo en {path})."
         )
     return path
+

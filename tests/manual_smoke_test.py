@@ -1,3 +1,4 @@
+
 """
 Smoke test manual del ciclo de vida completo de un job — mockea
 WhisperModel para poder correrlo sin GPU ni modelos reales. No usa
@@ -205,3 +206,4 @@ if __name__ == "__main__":
     test_falla_al_cargar_modelo()
     test_cancelacion_real()
     print("\nTodos los smoke tests pasaron.")
+

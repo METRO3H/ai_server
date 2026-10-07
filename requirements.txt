@@ -1,7 +1,26 @@
+
 fastapi>=0.115
 uvicorn[standard]>=0.30
 python-multipart>=0.0.9
 faster-whisper>=1.0
+
+# llama-cpp-python (traducción) NO va descomentado acá a propósito: un
+# `pip install -r requirements.txt` normal lo compilaría SIN GPU. Para
+# instalarlo con soporte CUDA hace falta el toolkit de CUDA del sistema
+# (a diferencia de faster-whisper, que resuelve todo vía pip con
+# nvidia-cublas-cu12/nvidia-cudnn-cu12 de más abajo) — ver el paso a
+# paso completo en README.md antes de instalar esto.
+#
+#   CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python
+#
+# Sin GPU en este mediador (o para probar el flujo con n_gpu_layers=0
+# mientras se resuelve la compilación con CUDA), alcanza con:
+#
+#   pip install llama-cpp-python
+
+# Detección de idioma es responsabilidad exclusiva del cliente (ver
+# core/lang_detect.py en audio_tools) — este mediador no la necesita,
+# así que no suma lingua/langid a este archivo.
 
 # ctranslate2 fijado a mano (no dejar que faster-whisper resuelva la
 # última disponible): 4.8.x introduce un pico de VRAM notablemente más
@@ -20,3 +39,11 @@ rich
 # que hace falta setear.
 nvidia-cublas-cu12
 nvidia-cudnn-cu12
+
+# Opcional: VRAM/nombre de GPU reportados al cliente al cargar un
+# modelo de traducción (ver mediator/hardware_info.py), para que sus
+# estadísticas de corridas remotas queden completas. Si no está
+# instalado, o no hay GPU NVIDIA, simplemente no se reporta VRAM — no
+# rompe nada.
+nvidia-ml-py
+

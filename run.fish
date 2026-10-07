@@ -1,16 +1,27 @@
 #!/usr/bin/env fish
 
-argparse --ignore-unknown 'no-power-mode' -- $argv
+argparse --ignore-unknown 'no-power-mode' 'no-wifi-watchdog' -- $argv
 or exit 1
 
-set -g script_dir (dirname (status --current-filename))
+set -g script_dir (cd (dirname (status --current-filename)); and pwd)
+
+if not cd "$script_dir"
+    echo "No se pudo acceder al directorio del servidor."
+    exit 1
+end
 set -g power_mode_enabled 1
 set -g server_pid
 set -g cleanup_done 0
 set -g terminal_echoctl 1
+set -g wifi_pid
+set -g wifi_watchdog_enabled 1
 
 if set -q _flag_no_power_mode
     set -g power_mode_enabled 0
+end
+
+if set -q _flag_no_wifi_watchdog
+    set -g wifi_watchdog_enabled 0
 end
 
 
@@ -38,7 +49,25 @@ function restore_ctrl_c_echo
 end
 
 
+function start_wifi_watchdog
+    if test $wifi_watchdog_enabled -eq 1
+        $script_dir/wifi_watchdog.fish &
+        set -g wifi_pid $last_pid
+    end
+end
+
+
+function stop_wifi_watchdog
+    if test -n "$wifi_pid"
+        kill $wifi_pid 2>/dev/null
+        set -g wifi_pid
+    end
+end
+
+
 function restore_power_mode
+    stop_wifi_watchdog
+
     if test $cleanup_done -eq 1
         restore_ctrl_c_echo
         return
@@ -87,6 +116,9 @@ end
 clear
 
 
+start_wifi_watchdog
+
+
 if test $power_mode_enabled -eq 1
     log_power "Activando modo ahorro de energía..."
     echo ""
@@ -95,12 +127,15 @@ if test $power_mode_enabled -eq 1
 
     if test $status -ne 0
         log_power "Error: no se pudo activar el modo ahorro de energía."
+        # power_mode_on.fish pudo haber detenido servicios antes de fallar,
+        # así que se restaura todo para no dejar la pantalla en negro.
+        restore_power_mode
         exit 1
     end
 end
 
 
-set -l python ".venv/bin/python"
+set -l python "$script_dir/.venv/bin/python"
 
 set -l cuda_libs (
     $python -c "

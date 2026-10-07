@@ -1,3 +1,4 @@
+
 """
 Barra de progreso para la terminal del server, durante la carga del
 modelo y la transcripción de cada job.
@@ -98,3 +99,4 @@ class ProgressUI:
             self._progress.update(
                 self._overall_task, completed=completed_before + file_progress,
             )
+

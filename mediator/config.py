@@ -1,3 +1,4 @@
+
 """Configuración y rutas del mediador."""
 from __future__ import annotations
 
@@ -6,6 +7,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 WHISPER_MODELS_DIR = BASE_DIR / "whisper_models"
+TRANSLATION_MODELS_DIR = BASE_DIR / "translation_models"
 LOGS_DIR = BASE_DIR / "logs"
 
 HTTP_HOST = "0.0.0.0"
@@ -22,4 +24,6 @@ GRACE_PERIOD_SECONDS = 15 * 60  # 15 minutos
 WATCHDOG_INTERVAL_SECONDS = 30  # cada cuánto se revisa la inactividad
 
 WHISPER_MODELS_DIR.mkdir(parents=True, exist_ok=True)
+TRANSLATION_MODELS_DIR.mkdir(parents=True, exist_ok=True)
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
+

@@ -1,3 +1,4 @@
+
 """
 Descubrimiento por UDP broadcast: el cliente manda un paquete con el
 "magic" ``AUDIOTOOLS_DISCOVER?`` a la subred, este server responde con
@@ -53,3 +54,4 @@ def start() -> threading.Event:
     thread = threading.Thread(target=_serve_forever, args=(stop_event,), daemon=True)
     thread.start()
     return stop_event
+
