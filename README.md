@@ -83,11 +83,11 @@ Whisper models are **not downloaded automatically**. Drop the CTranslate2 model 
 
 ```
 whisper_models/
-├── medium/
+├── large-v3/
 │   ├── model.bin
 │   ├── config.json
 │   └── ...
-└── large-v3/
+└── kotoba-v2.2/
     ├── model.bin
     └── ...
 ```
@@ -96,16 +96,21 @@ whisper_models/
 
 ### Where to get the files
 
-Since the mediator may have limited bandwidth, download on a well-connected machine and copy over LAN (`scp`, a network share, a USB stick — whatever's convenient):
+`huggingface_hub` is in `requirements.txt` and ships the `hf` CLI. With the venv activated:
 
 ```bash
-pip install huggingface_hub
-python -c "from huggingface_hub import snapshot_download; snapshot_download('Systran/faster-whisper-large-v3', local_dir='large-v3')"
+hf download Systran/faster-whisper-large-v3 --local-dir ./whisper_models/large-v3
 ```
 
-Replace `large-v3` with whichever size you want — the HF repo names follow `Systran/faster-whisper-<size>` (e.g. `Systran/faster-whisper-medium`).
+The HF repo names follow `Systran/faster-whisper-<size>` for the official conversions (e.g. `Systran/faster-whisper-medium`). For Japanese-only audio, `RoachLin/kotoba-whisper-v2.2-faster` (community conversion of Kotoba Technologies' fine-tune) is roughly 6× faster than `large-v3` and more accurate — use `language=ja` with it, and if `word_timestamps=true` misbehaves, fall back to `false`:
 
-This produces a flat `large-v3/` folder (`model.bin`, `config.json`, etc., without the symlink-tree layout of the normal HF cache). Copy that folder as-is into `whisper_models/` on the mediator.
+```bash
+hf download RoachLin/kotoba-whisper-v2.2-faster --local-dir ./whisper_models/kotoba-v2.2
+```
+
+The folder name you pass to `--local-dir` is what you'll use as `model_size` in `POST /jobs`. `--local-dir` writes a flat folder (`model.bin` directly inside) — without it, HF creates the symlink-tree cache layout that the mediator won't recognize.
+
+Since the mediator may have limited bandwidth, you can also download on a well-connected machine and copy over LAN (`scp`, a network share, a USB stick — whatever's convenient). `large-v3` is ~3.1 GB.
 
 ---
 

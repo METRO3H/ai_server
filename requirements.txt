@@ -1,8 +1,14 @@
-
 fastapi>=0.115
 uvicorn[standard]>=0.30
 python-multipart>=0.0.9
 faster-whisper>=1.0
+
+# Hugging Face Hub — solo para descargar modelos a mano con el CLI `hf`
+# (ver README, sección "Models"). El mediador en sí nunca descarga
+# nada automáticamente: esto está acá solo para que `pip install -r
+# requirements.txt` deje el comando `hf` listo en el venv y no haga
+# falta un `pip install huggingface_hub` aparte.
+huggingface_hub
 
 # llama-cpp-python (traducción) NO va descomentado acá a propósito: un
 # `pip install -r requirements.txt` normal lo compilaría SIN GPU. Para
@@ -46,4 +52,3 @@ nvidia-cudnn-cu12
 # instalado, o no hay GPU NVIDIA, simplemente no se reporta VRAM — no
 # rompe nada.
 nvidia-ml-py
-
