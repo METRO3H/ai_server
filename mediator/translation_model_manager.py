@@ -83,7 +83,7 @@ class TranslationModelManager:
                         model_path=str(model_path),
                         n_gpu_layers=n_gpu_layers,
                         n_ctx=n_ctx,
-                        chat_format="chatml",
+                        # chat_format="chatml",
                         verbose=False,
                     )
             except Exception as exc:
